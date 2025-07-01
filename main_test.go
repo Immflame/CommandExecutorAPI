@@ -1,58 +1,72 @@
 package main
 
 import (
+	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
-// {
-//     "command": ["cmd.exe","/c","echo","hello"],
-//     "timeout": 1
-// } вывод:
-
-// {
-//     "command": ["cmd.exe","/c","echo","hello"],
-//     "timeout": 0.00001
-// } вывод:
-
-type Resp struct {
-	Command []string `json:"command"`
-	Timeout float64  `json:"timeout"`
-}
-
 func TestCommands_SuccessfulExecutionOfTheCommands(t *testing.T) {
-	///Успешное выполнение команд
+	request := bytes.NewBufferString(`{"command": ["cmd.exe","/c","echo","hello"], "timeout": 1}`)
 
+	req := httptest.NewRequest(http.MethodPost, "/command", request)
+	rec := httptest.NewRecorder()
+
+	CommandHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Ожидался код %d, но получен %d", http.StatusOK, rec.Code)
+	}
+
+	expectedBody := "The command was executed successfully\n"
+	if rec.Body.String() != expectedBody {
+
+		fmt.Println(rec.Body.String())
+		t.Errorf("Ожидалось тело '%s', но получено '%s'\n", expectedBody, rec.Body.String())
+	}
 }
 
 func TestRequest_InvalidRequestFormatHandling(t *testing.T) {
-	/// Обработка неверно сформированного запроса
-	var buf Resp
-	req, err := http.NewRequest("Post", "/command", &buf)
+	request := bytes.NewBufferString(`{"command": ["cmd.exe","/c","echo","hello"], "timeout": "WrongType"}`)
 
-	if err != nil {
-		t.Fatal(err)
+	req := httptest.NewRequest(http.MethodPost, "/command", request)
+	// Создаём тестовый HTTP-ответ
+	rec := httptest.NewRecorder()
+	// Вызываем хендлер
+	CommandHandler(rec, req)
+	// Проверяем код ответа
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("Ожидался код %d, но получен %d", http.StatusBadRequest, rec.Code)
 	}
+	// Проверяем тело ответа
+	expectedBody := "Invalid request body\n"
+	if rec.Body.String() != expectedBody {
 
-	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(CommandHandler)
-
-	handler.ServeHTTP(rr, req)
-
-	if status := rr.Code; status != http.StatusBadRequest {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusOK)
+		fmt.Println(rec.Body.String())
+		t.Errorf("Ожидалось тело '%s', но получено '%s'\n", expectedBody, rec.Body.String())
 	}
-
-	expected := "Invalid request body"
-	if rr.Body.String() != expected {
-		t.Errorf("handler returned unexpected body: got %v want %v",
-			rr.Body.String(), expected)
-	}
-
 }
 
 func TestTimeout_EndOfTime(t *testing.T) {
 	///Проверяющий запуск команды в ситуации, когда она не заканчивается в отведенное время
+	request := bytes.NewBufferString(`{"command": ["cmd.exe","/c","echo","hello"], "timeout": 0.0001}`)
+
+	req := httptest.NewRequest(http.MethodPost, "/command", request)
+	// Создаём тестовый HTTP-ответ
+	rec := httptest.NewRecorder()
+	// Вызываем хендлер
+	CommandHandler(rec, req)
+	// Проверяем код ответа
+	if rec.Code != http.StatusRequestTimeout {
+		t.Errorf("Ожидался код %d, но получен %d", http.StatusRequestTimeout, rec.Code)
+	}
+	// Проверяем тело ответа
+	expectedBody := "Request timeout\n"
+	if rec.Body.String() != expectedBody {
+
+		fmt.Println(rec.Body.String())
+		t.Errorf("Ожидалось тело '%s', но получено '%s'\n", expectedBody, rec.Body.String())
+	}
 }
