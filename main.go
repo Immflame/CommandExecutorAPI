@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"strconv"
 	"time"
 )
 
@@ -28,24 +31,40 @@ func CommandHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		start := time.Now()
-		cmdStruct := exec.Command(resp.Command[0], resp.Command[1:]...)
-		out, err := cmdStruct.Output()
-		duration := time.Since(start)
-
-		if err != nil {
-			fmt.Println(err)
+		if timeout_time > resp.Timeout {
+			timeout_time = resp.Timeout
 		}
 
-		fmt.Println(string(out))
+		if timeout_time <= 0 {
+			timeout_time = 1
+		}
 
-		if duration.Seconds() > timeout_time || duration.Seconds() > resp.Timeout {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout_time)*time.Second)
+		defer cancel()
+
+		cmdStruct := exec.CommandContext(ctx, resp.Command[0], resp.Command[1:]...)
+		out, err := cmdStruct.Output()
+
+		if ctx.Err() != nil {
+			http.Error(w, "Error:"+string(ctx.Err().Error()), http.StatusRequestTimeout)
+			return
+		}
+
+		if ctx.Err() == context.DeadlineExceeded {
 			http.Error(w, "Request timeout", http.StatusRequestTimeout)
 			return
 		}
 
+		fmt.Println(string(out))
+
+		if err != nil {
+			fmt.Println(err)
+			http.Error(w, fmt.Sprintf("Command execution error: %s", err), http.StatusInternalServerError)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "The command was executed successfully")
+		fmt.Fprintf(w, "The command was executed successfully: %s", string(out))
 
 	default:
 		http.Error(w, "Method is not allowed", http.StatusMethodNotAllowed)
@@ -54,15 +73,24 @@ func CommandHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	var address string
 
-	fmt.Scan(&address, &timeout_time)
+	if len(os.Args) < 3 {
+		fmt.Println("2 args")
+		return
+	}
+
+	address := string(os.Args[1])
+	s, err := strconv.Atoi(os.Args[2])
+	if err != nil {
+		fmt.Println("Second arg must be float64")
+		return
+	}
+	timeout_time = float64(s)
 
 	http.HandleFunc("/command", CommandHandler)
 
 	fmt.Printf("Server listening localhost:%s \nMax execution time (sec): %f\n", address, timeout_time)
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	if err := http.ListenAndServe(":"+address, nil); err != nil {
 		fmt.Println(err)
 	}
-
 }

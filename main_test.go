@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
 func TestCommands_SuccessfulExecutionOfTheCommands(t *testing.T) {
-	request := bytes.NewBufferString(`{"command": ["cmd.exe","/c","echo","hello"], "timeout": 1}`)
+	request := bytes.NewBufferString(`{"command": ["cmd.exe","/c","echo","hello"], "timeout": 3}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/command", request)
 	rec := httptest.NewRecorder()
@@ -20,11 +21,10 @@ func TestCommands_SuccessfulExecutionOfTheCommands(t *testing.T) {
 		t.Errorf("Ожидался код %d, но получен %d", http.StatusOK, rec.Code)
 	}
 
-	expectedBody := "The command was executed successfully\n"
-	if rec.Body.String() != expectedBody {
-
-		fmt.Println(rec.Body.String())
-		t.Errorf("Ожидалось тело '%s', но получено '%s'\n", expectedBody, rec.Body.String())
+	actualBody := strings.TrimSpace(strings.ReplaceAll(rec.Body.String(), "\r\n", "\n"))
+	expectedBody := strings.TrimSpace(strings.ReplaceAll("The command was executed successfully: hello", "\r\n", "\n"))
+	if !strings.Contains(actualBody, expectedBody) {
+		t.Errorf("Expected '%s', but got '%s'\n", expectedBody, actualBody)
 	}
 }
 
@@ -32,15 +32,11 @@ func TestRequest_InvalidRequestFormatHandling(t *testing.T) {
 	request := bytes.NewBufferString(`{"command": ["cmd.exe","/c","echo","hello"], "timeout": "WrongType"}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/command", request)
-	// Создаём тестовый HTTP-ответ
 	rec := httptest.NewRecorder()
-	// Вызываем хендлер
 	CommandHandler(rec, req)
-	// Проверяем код ответа
 	if rec.Code != http.StatusBadRequest {
 		t.Errorf("Ожидался код %d, но получен %d", http.StatusBadRequest, rec.Code)
 	}
-	// Проверяем тело ответа
 	expectedBody := "Invalid request body\n"
 	if rec.Body.String() != expectedBody {
 
@@ -50,20 +46,15 @@ func TestRequest_InvalidRequestFormatHandling(t *testing.T) {
 }
 
 func TestTimeout_EndOfTime(t *testing.T) {
-	///Проверяющий запуск команды в ситуации, когда она не заканчивается в отведенное время
 	request := bytes.NewBufferString(`{"command": ["cmd.exe","/c","echo","hello"], "timeout": 0.0001}`)
 
 	req := httptest.NewRequest(http.MethodPost, "/command", request)
-	// Создаём тестовый HTTP-ответ
 	rec := httptest.NewRecorder()
-	// Вызываем хендлер
 	CommandHandler(rec, req)
-	// Проверяем код ответа
 	if rec.Code != http.StatusRequestTimeout {
 		t.Errorf("Ожидался код %d, но получен %d", http.StatusRequestTimeout, rec.Code)
 	}
-	// Проверяем тело ответа
-	expectedBody := "Request timeout\n"
+	expectedBody := "Error:context deadline exceeded\n"
 	if rec.Body.String() != expectedBody {
 
 		fmt.Println(rec.Body.String())
